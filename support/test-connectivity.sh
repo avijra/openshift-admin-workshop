@@ -11,14 +11,11 @@ echo -n "Getting Pod B's IP... "
 pod_b_ip=$(oc get pod -n netproj-b $(oc get pod -n netproj-b | grep -v deploy | awk '/ose-/ {print $1}') -o jsonpath='{.status.podIP}{"\n"}')
 echo $pod_b_ip
 
-
 echo -n "Getting Pod A's Name... "
 pod_a_name=$(oc get pod -n netproj-a | grep -v deploy | awk '/ose-/ {print $1}')
 echo $pod_a_name
 
-
 echo -n "Checking connectivity between Pod A and Pod B..."
-
 
 i=1
 while [ $i -le ${max_tries} ]; do
@@ -42,4 +39,3 @@ if [ $i -ge ${max_tries} ] ; then
 else
   echo " ${green_color}worked${normal_color}"
 fi
-

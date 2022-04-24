@@ -1,0 +1,336 @@
+# Review OpenShift Configuration
+
+## MachineSets and Machines
+
+Kubernetes `Nodes` are where containers are orchestrated and run in `Pods`.
+OpenShift 4 is fundamentally different than OpenShift 3 with respect to its
+focus on automated operations through the use of `Operators`. With respect
+to `Nodes`, there is a set of `Operators` and controllers that are focused on
+maintaining the state of the cluster size -- including creating and
+destroying `Nodes`!
+
+. The `MachineSet` defines a desired state for a set of `Machine` objects. When
+using IPI installations, then, there is an `Operator` whose job it is to make
+sure that there is actually an underlying instance for each `Machine` and,
+finally, that every `Machine` becomes a `Node`.
++
+Execute the following:
++
+[source,bash,role="execute"]
+----
+oc get machineset -n openshift-machine-api
+----
++
+You will see something like:
++
+[source,bash,role="execute"]
+----
+NAME                                           DESIRED   CURRENT   READY   AVAILABLE   AGE
+cluster-754d-js4cq-worker-eu-west-1a           1         1         1       1           7h38m
+cluster-754d-js4cq-worker-eu-west-1b           1         1         1       1           7h38m
+cluster-754d-js4cq-worker-eu-west-1c           1         1         1       1           7h38m
+----
+
+. When OpenShift was installed, the installer interrogated the cloud provider
+to learn about the available AZs (since this is on AWS). It then ultimately
+created a `MachineSet` for each AZ and then scaled those sets, in order,
+until it reached the desired number of `Machines`. Since the default
+installation has 3 workers, the first 3 AZs got one worker each. The rest got
+zero.
++
+[source,bash,role="execute"]
+----
+oc get machine -n openshift-machine-api
+----
++
+You will see something like:
++
+[source,bash,role="execute"]
+----
+NAME                                                 PHASE      TYPE          REGION      ZONE         AGE
+cluster-754d-js4cq-master-0                          Running    m5.xlarge     eu-west-1   eu-west-1a   7h38m
+cluster-754d-js4cq-master-1                          Running    m5.xlarge     eu-west-1   eu-west-1b   7h38m
+cluster-754d-js4cq-master-2                          Running    m5.xlarge     eu-west-1   eu-west-1c   7h38m
+cluster-754d-js4cq-worker-eu-west-1a-wvs6g           Running    m5.xlarge     eu-west-1   eu-west-1a   7h32m
+cluster-754d-js4cq-worker-eu-west-1b-ndrwr           Running    m5.xlarge     eu-west-1   eu-west-1b   7h32m
+cluster-754d-js4cq-worker-eu-west-1c-bdnwn           Running    m5.xlarge     eu-west-1   eu-west-1c   7h32m
+----
++
+Each `Machine` has a corresponding `INSTANCE`.
+
+## Nodes
+
+. Verify that all nodes on your cluster are ready:
++
+[source,bash,role="execute"]
+----
+oc get nodes
+----
++
+You will see something like:
++
+[source,bash,role="execute"]
+----
+NAME                                         STATUS                     ROLES    AGE     VERSION
+ip-10-0-137-166.eu-west-1.compute.internal   Ready                      worker   7h27m   v1.22.5+a36406b
+ip-10-0-138-54.eu-west-1.compute.internal    Ready                      master   7h37m   v1.22.5+a36406b
+ip-10-0-175-156.eu-west-1.compute.internal   Ready                      worker   7h24m   v1.22.5+a36406b
+ip-10-0-189-244.eu-west-1.compute.internal   Ready                      master   7h37m   v1.22.5+a36406b
+ip-10-0-196-73.eu-west-1.compute.internal    Ready                      worker   7h24m   v1.22.5+a36406b
+ip-10-0-204-161.eu-west-1.compute.internal   Ready                      master   7h36m   v1.22.5+a36406b
+----
+
+[start=2]
+. Verify whether any of your nodes are close to using all of the CPU and memory available to them.
++
+Repeat the following command a few times to prove that you see actual usage of CPU and memory from your nodes. The numbers you see should change slightly each time you repeat the command.
++
+[source,bash,role="execute"]
+----
+oc adm top node
+----
++
+  You will see something like:
++
+[source,bash,role="execute"]
+----
+NAME                                         CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%
+ip-10-0-137-166.eu-west-1.compute.internal   317m         9%     3414Mi          23%
+ip-10-0-138-54.eu-west-1.compute.internal    765m         21%    6659Mi          46%
+ip-10-0-175-156.eu-west-1.compute.internal   340m         9%     4653Mi          31%
+ip-10-0-189-244.eu-west-1.compute.internal   832m         23%    8993Mi          61%
+ip-10-0-196-73.eu-west-1.compute.internal    387m         11%    4128Mi          28%
+ip-10-0-204-161.eu-west-1.compute.internal   715m         20%    6962Mi          47%
+----
+
+[start=3]
+. Use the oc describe command to verify that all of the conditions that might indicate problems are false.
+Spend sometime to understand all the information that is shown.
++
+[source,bash,role="execute"]
+----
+oc describe nodes ip-10-0-137-166.eu-west-1.compute.internal
+----
++
+You will see something like:
++
+[source,bash,role="execute"]
+----
+...output omitted...
+Conditions:
+  Type             Status  ...  Message
+  ----             ------  ...  -------
+  MemoryPressure   False   ...  kubelet has sufficient memory available
+  DiskPressure     False   ...  kubelet has no disk pressure
+  PIDPressure      False   ...  kubelet has sufficient PID available
+  Ready            True    ...  kubelet is posting ready status
+Addresses:
+...output omitted...
+----
+
+. Review the logs of the internal registry operator, the internal registry server, and the Kubelet of a node.
+
+.. List all pods inside the openshift-image-registry project, and then identify the pod that runs the operator and the pod that runs the internal registry server.
++
+[source,bash,role="execute"]
+----
+oc get pod -n openshift-image-registry
+----
++
+You will see something like:
++
+[source,bash,role="execute"]
+----
+NAME                                               READY   STATUS    ...
+cluster-image-registry-operator-564bd5dd8f-s46bz   1/1     Running   ...
+image-registry-794dfc7978-w7w69                    1/1     Running   ...
+...output omitted...
+----
+
+.. Follow the logs of the operator pod (cluster-image-registry-operator-xxx).
++
+[source,bash,role="execute"]
+----
+oc logs --tail 3 -n openshift-image-registry  cluster-image-registry-operator-564bd5dd8f-s46bz
+----
++
+You will see something like:
++
+[source,bash,role="execute"]
+----
+...output omitted...
+I0614 15:31:29.316773       1 imageregistrycertificates.go:97] ImageRegistryCertificatesController: event from workqueue successfully processed
+I0614 15:31:29.317055       1 controllerimagepruner.go:323] event from image pruner workqueue successfully processed
+I0614 15:31:29.341756       1 controller.go:333] event from workqueue successfully processed
+...output omitted...
+----
+
+.. Follow the logs of the image registry server pod (image-registry-xxx from the output of the oc get pod command run previously). Your output might be different than the following example.
++
+[source,bash,role="execute"]
+----
+oc logs --tail 1 -n openshift-image-registry image-registry-794dfc7978-w7w69
+----
++
+You will see something like:
++
+[source,bash,role="execute"]
+----
+...output omitted...
+time="2021-06-10T16:11:55.871435967Z" level=info msg=response go.version=go1.11.6 http.request.host="10.129.2.44:5000" http.request.id=f4d83df5-8ed7-4651-81d4-4ed9f758c67d http.request.method=GET http.request.remoteaddr="10.129.2.50:59500" http.request.uri=/extensions/v2/metrics http.request.useragent=Prometheus/2.11.0 http.response.contenttype="text/plain; version=0.0.4" http.response.duration=12.141585ms http.response.status=200 http.response.written=2326
+...output omitted...
+----
+
+.. Follow the logs of the Kubelet from the same node that you inspected for CPU and memory usage in the previous step. Your output might be different than the following example.
++
+[source,bash,role="execute"]
+----
+oc adm node-logs --tail 1 -u kubelet ip-10-0-137-166.eu-west-1.compute.internal
+----
++
+You will see something like:
++
+[source,bash,role="execute"]
+----
+...output omitted...
+Apr 23 09:15:07.290851 ip-10-0-137-166 hyperkube[2577]: I0423 09:15:07.290827    2577 kubelet.go:2145] "SyncLoop (PLEG): event for pod" pod="openshift-operator-lifecycle-manager/collect-profiles-27511755-2b9bn" event=&{ID:7ad340e3-0aef-4966-b9ee-68d81b2cfb34 Type:ContainerDied Data:6f43270ebd340dd458f03649a205f6d6e1343e2d5e1d326d38a465880025fbdf}
+Apr 23 09:15:07.290851 ip-10-0-137-166 hyperkube[2577]: I0423 09:15:07.290857    2577 pod_container_deletor.go:79] "Container not found in pod's containers" containerID="6f43270ebd340dd458f03649a205f6d6e1343e2d5e1d326d38a465880025fbdf"
+Apr 23 09:15:07.370940 ip-10-0-137-166 hyperkube[2577]: I0423 09:15:07.370914    2577 kubelet.go:2123] "SyncLoop DELETE" source="api" pods=[openshift-operator-lifecycle-manager/collect-profiles-27511710-thmrk]
+...output omitted...
+----
+
+. Start a shell session to the same node that you previously used to inspect its OpenShift services and pods. Do not make any change to the node, such as stopping services or editing configuration files.
+
+.. Start a shell session on the node, and then use the chroot command to enter the local file system of the host.
++
+[source,bash,role="execute"]
+----
+oc debug node/ip-10-0-137-166.eu-west-1.compute.internal
+----
++
+You will see something like:
++
+[source,bash,role="execute"]
+----
+oc debug node/ip-10-0-137-166.eu-west-1.compute.internal
+Starting pod/ip-10-0-137-166eu-west-1computeinternal-debug ...
+To use host binaries, run chroot /host
+Pod IP: 10.0.137.166
+If you dont see a command prompt, try pressing enter.
+sh-4.4# chroot /host
+sh-4.4#
+----
+
+.. Still using the same shell session, verify that the Kubelet and the CRI-O container engine are running. Type q to exit the command.
++
+[source,bash,role="execute"]
+----
+sh-4.4# systemctl status kubelet
+----
++
+You will see something like:
++
+[source,bash,role="execute"]
+----
+● kubelet.service - Kubernetes Kubelet
+   Loaded: loaded (/etc/systemd/system/kubelet.service; enabled; vendor preset: disabled)
+  Drop-In: /etc/systemd/system/kubelet.service.d
+           └─10-mco-default-madv.conf, 20-aws-node-name.conf, 20-logging.conf
+   Active: active (running) since Sat 2022-04-23 07:51:26 UTC; 1h 48min ago
+...output omitted...
+q
+----
++
+Rerun the same command against the cri-o service. Type q to exit from the command.
++
+[source,bash,role="execute"]
+----
+sh-4.4# systemctl status crio.service
+----
++
+You will see something like:
++
+[source,bash,role="execute"]
+----
+● crio.service - Open Container Initiative Daemon
+   Loaded: loaded (/usr/lib/systemd/system/crio.service; disabled; vendor preset: disabled)
+  Drop-In: /etc/systemd/system/crio.service.d
+           └─10-mco-default-env.conf, 20-nodenet.conf
+   Active: active (running) since Thu 2021-06-10 15:21:56 UTC; 1h 5min ago
+...output omitted...
+q
+----
+
+### Cluster Scaling
+Because of the magic of `Operators` and the way in which OpenShift uses them
+to manage `Machines` and `Nodes`, scaling your cluster in OpenShift 4 is
+extremely trivial.
+
+Look at the list of `MachineSets` again:
+
+[source,bash,role="execute"]
+----
+oc get machineset -n openshift-machine-api
+----
+
+Within that list, we will scale one of the `MachineSet` objects with the
+`oc scale` command. Run:
+
+[source,bash,role="execute"]
+----
+CLUSTERNAME=$(oc get  infrastructures.config.openshift.io cluster  -o jsonpath='{.status.infrastructureName}')
+ZONENAME=$(oc get nodes -L topology.kubernetes.io/zone  --no-headers  | awk '{print $NF}' | tail -1)
+oc scale machineset ${CLUSTERNAME}-worker-${ZONENAME} -n openshift-machine-api --replicas=2
+----
+
+Take special note the `MachineSet` scaled is likely different from
+the one that is shown in the lab guide. You should see a note that the
+`MachineSet` was successfully scaled. Now, look at the list of `Machines`:
+
+[source,bash,role="execute"]
+----
+oc get machines -n openshift-machine-api
+----
+
+You probably already have a new entry for a `Machine` with a `STATE` of
+`Pending`. After a few moments, it will have a corresponding EC2 instance ID
+and will look something like:
+
+----
+cluster-f4a3-lpxbs-worker-us-east-2c-h7gdt   i-0b9208ec47f0e206b   running   m5.2xlarge     eu-west-1   eu-west-1c   47s
+----
+
+At this point, in the background, the bootstrap process is happening
+automatically. After several minutes (up to five or so), take a look at the
+output of:
+
+[source,bash,role="execute"]
+----
+oc get nodes
+----
+
+You should see your fresh and happy new node as the one with a very young age:
+
+----
+ip-10-0-166-103.eu-west-1.compute.internal   Ready    worker   1m   v1.16.2
+----
+
+[Note]
+====
+It can take several minutes for a `Machine` to be prepared and added
+as a `Node`. You can follow the process by running a `watch` against
+`oc get nodes` if you wish.
+====
+
+Scale the `MachineSet` from two back down to one before continuing.
+
+[Warning]
+====
+Make sure you've set the ${CLUSTERNAME} and ${ZONENAME} varaible from
+when you scaled up, a few steps ago.
+====
+
+[source,bash,role="execute"]
+----
+oc scale machineset ${CLUSTERNAME}-worker-${ZONENAME} -n openshift-machine-api --replicas=1
+----

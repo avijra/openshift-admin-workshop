@@ -1,0 +1,23 @@
+# OpenShift and Container Storage for Administrators
+This repository contains lab instructions and related supporting content for
+an administrative-focused workshop that deals with OpenShift and OpenShift
+Container Storage.
+
+This workshop is split into the following sections:
+
+* link:01-auth.adoc[Configuring Identity Providers]
+* link:02-machinesets.adoc[MachineSets, Machines, and Nodes]
+* link:03-infra-nodes.adoc[OpenShift Infrastructure Nodes]
+* link:04-secrets.adoc[Managing Sensitive Information with Secrets]
+* link:05-scc.adoc[Security Context Constraint]
+* link:06-ingress.adoc[Cluster Network Ingress]
+* link:07-networking.adoc[OpenShift Network Policy Based SDN]
+* link:08-taints-and-tolerations.adoc[Taints and Tolerations]
+* link:09-template-quota-limits.adoc[Project Request Template, Quotas, Limits]
+* link:10-scaling-app.adoc[Scaling an Application]
+* link:11-disabling-project-self-provisioning.adoc[Disable Self-Provisioner role]
+* link:12-app-mgmt-basics.adoc[Application Management Basics]
+* link:13-app-storage-basics.adoc[Application Storage Basics]
+* link:14-monitoring-basics.adoc[OpenShift Monitoring]
+* link:15-logging.adoc[OpenShift Log Aggregation]
+* link:16-windows-containers.adoc[OpenShift Log Aggregation]

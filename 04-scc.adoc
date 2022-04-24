@@ -1,0 +1,158 @@
+# Security Context Constraint (SCCs)
+
+Red Hat OpenShift provides security context constraints (SCCs), a security mechanism that restricts access to resources, but not to operations in OpenShift.
+
+SCCs limit the access from a running pod in OpenShift to the host environment. SCCs control:
+
+* Running privileged containers.
+* Requesting extra capabilities for a container
+* Using host directories as volumes.
+* Changing the SELinux context of a container.
+* Changing the user ID.
+
+Some containers developed by the community might require relaxed security context constraints to access resources that are forbidden by default, such as file systems, sockets, or to access a SELinux context.
+
+You can run the following command as a cluster administrator to list the SCCs defined by OpenShift:
+[source,bash,role="execute"]
+----
+oc get scc
+NAME                              PRIV    CAPS         SELINUX     RUNASUSER          FSGROUP     SUPGROUP    PRIORITY     READONLYROOTFS   VOLUMES
+anyuid                            false   <no value>   MustRunAs   RunAsAny           RunAsAny    RunAsAny    10           false            ["configMap","downwardAPI","emptyDir","persistentVolumeClaim","projected","secret"]
+hostaccess                        false   <no value>   MustRunAs   MustRunAsRange     MustRunAs   RunAsAny    <no value>   false            ["configMap","downwardAPI","emptyDir","hostPath","persistentVolumeClaim","projected","secret"]
+hostmount-anyuid                  false   <no value>   MustRunAs   RunAsAny           RunAsAny    RunAsAny    <no value>   false            ["configMap","downwardAPI","emptyDir","hostPath","nfs","persistentVolumeClaim","projected","secret"]
+hostnetwork                       false   <no value>   MustRunAs   MustRunAsRange     MustRunAs   MustRunAs   <no value>   false            ["configMap","downwardAPI","emptyDir","persistentVolumeClaim","projected","secret"]
+machine-api-termination-handler   false   <no value>   MustRunAs   RunAsAny           MustRunAs   MustRunAs   <no value>   false            ["downwardAPI","hostPath"]
+node-exporter                     true    <no value>   RunAsAny    RunAsAny           RunAsAny    RunAsAny    <no value>   false            ["*"]
+nonroot                           false   <no value>   MustRunAs   MustRunAsNonRoot   RunAsAny    RunAsAny    <no value>   false            ["configMap","downwardAPI","emptyDir","persistentVolumeClaim","projected","secret"]
+privileged                        true    ["*"]        RunAsAny    RunAsAny           RunAsAny    RunAsAny    <no value>   false            ["*"]
+restricted                        false   <no value>   MustRunAs   MustRunAsRange     MustRunAs   RunAsAny    <no value>   false            ["configMap","downwardAPI","emptyDir","persistentVolumeClaim","projected","secret"]
+
+----
+
+. Log in to the cluster as the developer user.
+[source,bash,role="execute"]
+----
+oc login -u developer -p developer
+----
+
+. Create the authorization-scc project.
+[source,bash,role="execute"]
+----
+oc new-project authorization-scc
+----
+
+. Deploy an application named gitlab using the container image located at quay.io/redhattraining/gitlab-ce:8.4.3-ce.0. This image is a copy of the container image available at docker.io/gitlab/gitlab-ce:8.4.3-ce.0. Verify that the pod fails because the container image needs root privileges.
+
+.. Deploy the gitlab application.
+[source,bash,role="execute"]
+----
+oc new-app --name gitlab --image quay.io/redhattraining/gitlab-ce:8.4.3-ce.0
+----
+
+.. Determine if the application is successfully deployed. It should give an error because this image needs root privileges to properly deploy.
+[source,bash,role="execute"]
+----
+oc get pods -w
+NAME
+gitlab-6d7895868d-mnr9r   0/1     Error     4 (57s ago)   2m31s
+----
+
+.. Review the application logs to confirm that the failure is caused by insufficient privileges.
+[source,bash,role="execute"]
+----
+oc logs pod/gitlab-7d67db7875-gcsjl -f
+...output omitted...
+================================================================================
+Recipe Compile Error in /opt/gitlab/embedded/cookbooks/cache/cookbooks/gitlab/recipes/default.rb
+================================================================================
+
+Chef::Exceptions::InsufficientPermissions
+-----------------------------------------
+directory[/etc/gitlab] (gitlab::default line 26) had an error: Chef::Exceptions::InsufficientPermissions: Cannot create directory[/etc/gitlab] at /etc/gitlab due to insufficient permissions
+...output omitted...
+----
+
+.. Log in as the admin user.
+[source,bash,role="execute"]
+----
+oc login -u admin -p redhat
+----
+
+.. Check if using a different SCC can resolve the permissions problem.
+[source,bash,role="execute"]
+----
+oc get pod/gitlab-6d7895868d-mnr9r -o yaml | oc adm policy scc-subject-review -f -
+RESOURCE                      ALLOWED BY
+Pod/gitlab-6d7895868d-mnr9r   anyuid
+----
+
+. Create a new service account and assign the anyuid SCC to it.
+
+.. Create a service account named gitlab-sa.
+[source,bash,role="execute"]
+----
+oc create sa gitlab-sa
+serviceaccount/gitlab-sa created
+----
+
+.. Assign the anyuid SCC to the gitlab-sa service account.
+[source,bash,role="execute"]
+----
+oc adm policy add-scc-to-user anyuid -z gitlab-sa
+clusterrole.rbac.authorization.k8s.io/system:openshift:scc:anyuid added: "gitlab-sa"
+----
+
+. Modify the gitlab application so that it uses the newly created service account. Verify that the new deployment succeeds.
+
+.. Log in as the developer user.
+[source,bash,role="execute"]
+----
+oc login -u developer -p developer
+----
+
+.. Assign the gitlab-sa service account to the gitlab deployment.
+[source,bash,role="execute"]
+----
+oc set serviceaccount deployment/gitlab gitlab-sa
+deployment.apps/gitlab serviceaccount updated
+----
+
+.. Verify that the gitlab redeployment succeeds. You might need to run the oc get pods command multiple times until you see a running application pod.
+[source,bash,role="execute"]
+----
+oc get pods -w
+NAME                   READY   STATUS    RESTARTS   AGE
+gitlab-86d6d65-zm2fd   1/1     Running   0          55s
+----
+
+. Verify that the gitlab application works properly.
+
+.. Expose the gitlab application. Because the gitlab service listens on ports 22, 80, and 443, you must use the --port option.
+[source,bash,role="execute"]
+----
+oc expose service/gitlab --port 80
+----
+
+.. Get the exposed route.
+[source,bash,role="execute"]
+----
+oc get route
+NAME     HOST/PORT                                                           PATH   SERVICES   PORT   TERMINATION   WILDCARD
+gitlab   gitlab-authorization-scc.apps.cluster-754d.sandbox478.opentlc.com          gitlab     80                   None
+----
+
+.. Verify that the gitlab application is answering HTTP queries.
+[source,bash,role="execute"]
+----
+curl -s gitlab-authorization-scc.apps.cluster-754d.sandbox478.opentlc.com
+<html><body>You are being <a href="http://gitlab-authorization-scc.apps.cluster-754d.sandbox478.opentlc.com/users/sign_in">redirected</a>.</body></html>
+----
+
+## Clean-up
+[source,bash,role="execute"]
+----
+oc delete project authorization-scc
+----
+
+## Links
+* https://docs.openshift.com/container-platform/4.10/authentication/managing-security-context-constraints.html[Managing security context constraints]
